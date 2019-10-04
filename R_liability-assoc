@@ -1,0 +1,5 @@
+#!/bin/bash
+
+shift
+R --vanilla --args $* < liability_assoc.R 
+exit 0

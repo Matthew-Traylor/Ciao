@@ -1,0 +1,309 @@
+#!/usr/bin/perl
+use POSIX
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# version 1.2 allows user to avoid line counting and prespecify a line length
+# this is useful if data is in gzipped format
+
+# CIAO-GWA
+$version = "1.2"; 
+
+###--- BEGIN FRONT MATTER ---###
+
+print "\n\@----------------------------------------------------------@\n";
+print "|      CIAO-GWAS      |     v1.2      |   Apr/24/2015     |\n";
+print "|----------------------------------------------------------|\n";
+print "|  (C) 2015 Matthew Traylor                                |\n";
+print "|----------------------------------------------------------|\n";
+print "|  For documentation, citation:                            |\n";
+print "|							   |\n";
+print "\@----------------------------------------------------------@\n\n";
+
+
+my $time = localtime; # scalar context
+print "Analysis started at $time\n\n";
+
+for($i = 0; $i <= $#ARGV; ++$i){
+	$field = $ARGV[$i];
+	if(length($field)>1){
+		if($field eq "--genfile"){ 
+			$genfile = $ARGV[$i+1];
+			print "--genfile $ARGV[$i+1]\n";
+			unless (-e $genfile) {die "genfile does not exist, exiting...\n\n";}
+		}
+		if($field eq "--samplefile"){ 
+			$samplefile = $ARGV[$i+1];
+			print "--samplefile $ARGV[$i+1]\n";
+			unless (-e $samplefile) {die "samplefile does not exist, exiting...\n\n";}
+		}
+		if($field eq "--mlinfo"){
+                        $mlinfo = $ARGV[$i+1];
+                        print "--mlinfo $ARGV[$i+1]\n";
+			unless (-e $mlinfo) {die "mlinfo file does not exist, exiting...\n\n";}
+                }
+		if($field eq "--mldose"){
+                        $mldose = $ARGV[$i+1];
+                        print "--mldose $ARGV[$i+1]\n";
+			unless (-e $mldose) {die "mldose file does not exist, exiting...\n\n";}
+                }
+		if($field eq "--mlpheno"){
+                        $mlpheno = $ARGV[$i+1];
+                        print "--mlpheno $ARGV[$i+1]\n";
+			unless (-e $mlpheno) {die "mlpheno file does not exist, exiting...\n\n";}
+                }
+		if($field eq "--liability-calc"){
+			$mode = "liability";
+			print "--liability-calc\n";
+		}
+		if($field eq "--assoc"){ 
+			$mode = "assoc";
+			print "--assoc\n";
+		}
+		if($field eq "--out"){ 
+			$out = $ARGV[$i+1];
+			print "--out $ARGV[$i+1]\n";
+		}
+		if($field eq "--gender"){
+			$gender = "TRUE";
+			print "--gender\n";
+		}
+		if($field eq "--parameter"){
+			$parameter = $ARGV[$i+1];
+			print "--parameter $ARGV[$i+1]\n";
+			unless (-e $parameter) {die "parameter file does not exist, exiting...\n\n";}
+		}
+		if($field eq "--parameter-male"){
+                        $parameter_male = $ARGV[$i+1];
+                        print "--parameter-male $ARGV[$i+1]\n";
+			unless (-e $parameter_male) {die "parameter_male file does not exist, exiting...\n\n";}
+                }
+		if($field eq "--parameter-female"){
+                        $parameter_female = $ARGV[$i+1];
+                        print "--parameter-female $ARGV[$i+1]\n";
+			unless (-e $parameter_female) {die "parameter_female file does not exist, exiting...\n\n";}
+                }
+#		 if($field eq "--memory"){
+ #                       $memory = $ARGV[$i+1];
+  #                      print "--memory $ARGV[$i+1]\n";
+   #             }
+		 if($field eq "--liabilities"){
+                        $liabilities = $ARGV[$i+1];
+                        print "--liabilities $ARGV[$i+1]\n";
+			unless (-e $liabilities) {die "liabilities file does not exist, exiting...\n\n";}	
+		}		
+		if($field eq "--chunk"){
+                        $chunk = $ARGV[$i+1];
+                        print "--chunk $ARGV[$i+1]\n";
+                                
+                }
+		if($field eq "--covariates"){
+                        $covariates = "TRUE";
+                        print "--covariates\n";
+
+                }
+		if($field eq "--line-count"){
+			$lines = $ARGV[$i+1];
+			print "--line-count $ARGV[$i+1]\n";
+		}
+	}
+}
+
+print "\n";
+#error messages
+if(defined($gender)&&defined($parameter)){die "exiting program...\nplease use --gender option in combination with --parameter-male and --parameter-female options...\n\n";}
+if(defined($gender)&&defined($parameter)){die "exiting program...\nplease use --gender option in combination with --parameter-male and --parameter-female options...\n\n";}
+if(!defined($gender)&&(defined($parameter_male)||defined($parameter_female))){die "exiting program...\nplease use --gender option in combination with --parameter-male and --parameter-female options...\n\n";}
+unless(defined($covariates)){$covariates="FALSE";}
+unless(defined($mode)){die "exiting program...\nplease selected either --assoc or --liability-calc mode...\n\n";}
+if (-e $out) {unlink($out) or die "output filename already exists and cannot be overwritten, exitting...\n\n";} 
+
+#user info messages
+if($mode eq "assoc"){print "association analysis mode selected...\n";}
+if($mode eq "liability"){print "liability calculation mode selected...\n";}
+if(defined($genfile)&&($mode eq "liability")){print "running liability-calc mode: --genfile flag ignored...\n";}
+unless(defined($chunk)){if($mode eq "assoc"){$chunk=50000;print "chunk size not specified, setting to default of 50,000 SNPs...\n";}}
+if($gender eq "TRUE"){print  "liabilities will be calculated separately by gender...\n";}
+if($chunk < 10000 && $mode eq "assoc"){print "WARNING: user defined chunk size is low - increasing chunk size will speed up analysis!\n";}
+#unless(defined($memory)){$memory=5000 && print "memory allocation unspecified, assuming 5Gb of free RAM...\n";}
+if(defined($linecount)){print "line count prespecified\n";}
+
+# Make working directory
+#my ($Second, $Minute, $Hour, $Day, $Month, $Year, $WeekDay, $DayOfYear, $IsDST) = localtime(time) ;
+#$time_stamp = $DayOfYear.$Hour.$Minute.$Second.$outfile.$dochr;
+#mkdir "$time_stamp", 0777 or die "Error: cannot make working directory. Check that you have correct permission settings: $!";
+
+#print "\nCreating working directory: $time_stamp\n";
+
+
+
+## Check that R exists
+system("echo -n \$PATH > path");
+open(PATH, "path");
+$path = <PATH>;
+@path = split(/:/, $path);
+$Rtimes=0;
+foreach $i(@path){
+	#print "$i\n";
+	if(-e "$i/R"){
+		$Rtimes=$Rtimes+1;
+	}
+	 if(-e "$i/R_liability-assoc"){
+                $Rtimes=$Rtimes+1;
+        }
+	 if(-e "$i/R_liability-calc"){
+                $Rtimes=$Rtimes+1;
+        }
+
+}
+if($Rtimes < 3){
+	die "please ensure that R, R_liability-assoc, R_liability-assoc-mach and R_liability-calc are in the path, exiting...\n\n";
+}
+system("rm path");
+
+
+
+# If liability-calc mode is specified, calculate posterior liabilities
+if($mode eq "liability"){
+	if(defined($gender)){
+	unless(defined($parameter-male && $parameter-female && $samplefile && $out)){
+		die "liability calculation mode requires user-specified --samplefile, --parameter-male, --parameter-female, and --out inputs, exiting...\n\n";
+	}
+	}
+	else{
+	unless(defined($parameter && $samplefile && $out)){
+		die "liability calculation mode requires user-specified --samplefile, --parameter, and --out inputs, exiting...\n\n";
+	}
+	}
+	open (FILE, "calculate_liabilities.R") or die "please ensure the R script 'calculate_liabilities.R' is in the working directory, exiting...\n\n";
+	close FILE;
+	if(defined($gender)){
+		&calculate_liabilities_gender;
+	}
+	else{
+		&calculate_liabilities;
+	}
+}
+elsif($mode eq "assoc"){
+	#IMPUTE format assoc mode
+	if(defined($genfile || $samplefile)){
+	unless(defined($liabilities && $genfile && $samplefile && $out)){
+		die "IMPUTE format association mode requires user-specified --liablities, --genfile, --samplefile, and --out inputs, exiting...\n\n";
+	}
+	
+	open (FILE, "liability_assoc.R") or die "please ensure the R script 'liability_assoc.R' is in the working directory, exiting...\n\n";
+	close FILE;
+
+	unless(defined($lines)){
+		open (FILE, $genfile) or die "Can't open '$genfile': $!";
+		$lines++ while (<FILE>);
+		close FILE;
+	}
+	
+	$no_chunks=ceil($lines/$chunk);
+	print "$lines lines in file...\n";
+	print "chunk size of $chunk selected...\n";
+	print "$no_chunks chunks will be analysed...\n";	
+	$skip=0;
+	for (my $i=1; $i <= $no_chunks; $i++) {
+		print "\nanalysing chunk $i of $no_chunks...";
+		&assoc;
+		$skip=$skip+$chunk;
+	}
+	print "\n";
+	}
+	
+	# Mach format assoc mode
+	if(defined($mlinfo || $mldose )){
+	unless(defined($liabilities && $mlinfo && $mldose && $out)){
+                die "MaCH format association mode requires user-specified --liablities, --mlinfo, --mldose, and --mlpheno inputs, exiting...\n\n";
+        }
+
+        open (FILE, "liability_assoc_mach.R") or die "please ensure the R script 'liability_assoc_mach.R' is in the working directory, exiting...\n\n";
+        close FILE;
+
+	#check if info file has extra 5 columns, as in latest minimac output
+        open (my $FILE, $mlinfo) or die "Can't open '$mlinfo': $!";
+        $cols1=<$FILE>;
+	$tabcount = ($cols1 =~ tr/\t//);
+	if($tabcount > 8){
+		$long="TRUE";
+		print "long info file detected...\n";
+		system("cut -f1-7 $mlinfo > $mlinfo.tmp");	
+	}else{
+		$long="FALSE";
+		print "short info file detected...\n";
+		system("cp $mlinfo $mlinfo.tmp");
+	}
+		
+        open (FILE, $mlinfo) or die "Can't open '$mlinfo': $!";
+	$lines++ while (<FILE>);
+        close FILE;
+
+        $no_chunks=ceil($lines/$chunk);
+        print "$lines lines in file...\n";
+        print "chunk size of $chunk selected...\n";
+        print "$no_chunks chunks will be analysed...\n";
+        $skip=2;
+        for (my $i=1; $i <= $no_chunks; $i++) {
+                print "\nanalysing chunk $i of $no_chunks...";
+        	if($i==$no_chunks){$chunk=$lines-1-(($no_chunks-1)*$chunk);}	
+	        &assoc;
+                $skip=$skip+$chunk;
+        }
+        print "\n";
+        }
+
+}
+
+
+
+
+## SUBROUTINES
+
+## Create liability phenotypes
+sub calculate_liabilities_gender{
+	system("
+	R_liability-calc calculate_liabilities.R $samplefile $parameter_male $parameter_female $out > tmp.Rlog
+	");
+}
+sub calculate_liabilities{
+	system("
+	R_liability-calc calculate_liabilities.R $samplefile $parameter $parameter $out > tmp.Rlog
+	");
+}
+
+
+## Perform association
+sub assoc{
+	if(defined($liabilities && $mlinfo && $mldose && $out && $covariates && $chunk)){
+	  	$skip1=$skip+1;
+		$end=$skip+$chunk;
+		system("cut -f$skip1-$end $mldose > $out.proxy-assoc");
+		system("
+                R_liability-assoc-mach liaibility_assoc_mach.R $liabilities '$out.proxy-assoc' $mlinfo.tmp $skip $chunk $out $covariates $lines $mlpheno $long > tmp.Rlog
+                ");
+		system("rm $out.proxy-assoc");
+        }
+	
+	if(defined($liabilities && $genfile && $samplefile && $out && $skip && $chunk && $covariates)){
+		system("
+		R_liability-assoc liability_assoc.R $liabilities $genfile $samplefile $skip $chunk $out $covariates > tmp.Rlog
+		");
+	}
+}
+my $time = localtime; # scalar context
+print "\n\nAnalysis completed at $time\n";
+
+

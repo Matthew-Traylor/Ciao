@@ -1,0 +1,5 @@
+#!/bin/bash
+
+shift
+R --vanilla --args $* < calculate_liabilities.R 
+exit 0
